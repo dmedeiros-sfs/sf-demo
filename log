@@ -1,0 +1,264 @@
+exit
+clear
+mv /usr/bin/systemctl /usr/bin/systemctl.real
+cat > /usr/bin/systemctl << 'EOF'
+#!/bin/bash
+echo "DEBUG: systemctl called with: $*" | tee -a /tmp/systemctl.log >&2
+# PostgreSQL handlers
+if [[ "$1" == "show" && "$*" == *"postgresql-17"* ]]; then
+    grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf 2>/dev/null
+    exit 0
+fi
+if [[ "$1" == "start" && "$2" == *"postgresql-17"* ]]; then
+    PGDATA=$(grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf | cut -d= -f3)
+    su - postgres -c "/usr/pgsql-17/bin/pg_ctl start -D ${PGDATA} -l ${PGDATA}/startup.log -w"
+    exit $?
+fi
+if [[ "$1" == "stop" && "$2" == *"postgresql-17"* ]]; then
+    PGDATA=$(grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf | cut -d= -f3)
+    su - postgres -c "/usr/pgsql-17/bin/pg_ctl stop -D ${PGDATA} -m fast"
+    exit $?
+fi
+# Starfish services handler
+if [[ "$1" == "start" || "$1" == "restart" || "$1" == "stop" ]]; then
+    ACTION="$1"
+    SERVICE="$2"
+
+    # Handle starfish.target - start all wanted services
+    if [[ "$SERVICE" == "starfish.target" ]]; then
+        for svc in sf-auth sf-auth-v2 sf-archive sf-config sf-cron sf-dispatcher sf-gateway sf-loki29 sf-nginx2 sf-pgagent sf-pgloader sf-scans sf-tagsets-v2 sf-temp sf-volumes sf-workflows; do
+            $0 "$ACTION" "$svc"
+        done
+        exit 0
+    fi
+
+    # Handle sf-agent
+    if [[ "$SERVICE" == "sf-agent" || "$SERVICE" == "sf-agent.service" ]]; then
+        case "$ACTION" in
+            start|restart)
+                /opt/starfish/bin/agent start >>/opt/starfish/log/agent.out 2>&1
+                ;;
+            stop)
+                /opt/starfish/bin/agent stop >>/opt/starfish/log/agent.out 2>&1
+                ;;
+        esac
+        exit $?
+    fi
+
+    # Handle other sf-* services - they follow same pattern
+    if [[ "$SERVICE" == sf-* ]]; then
+        SVC_NAME="${SERVICE%.service}"
+        SVC_NAME="${SVC_NAME#sf-}"
+        if [[ -x "/opt/starfish/bin/${SVC_NAME}" ]]; then
+            case "$ACTION" in
+                start|restart)
+                    /opt/starfish/bin/${SVC_NAME} start >>/opt/starfish/log/${SVC_NAME}.out 2>&1
+                    ;;
+                stop)
+                    /opt/starfish/bin/${SVC_NAME} stop >>/opt/starfish/log/${SVC_NAME}.out 2>&1
+                    ;;
+            esac
+            exit $?
+        fi
+    fi
+fi
+if [[ "$1" == "daemon-reload" || "$1" == "enable" ]]; then
+    exit 0
+fi
+if [[ "$1" == "is-enabled" && "$2" == *"postgresql"* ]]; then
+    echo "enabled"
+    exit 0
+fi
+/usr/bin/systemctl.real "$@"
+EOF
+chmod +x /usr/bin/systemctl
+cd /opt/sfrepo/installer
+bash install-Starfish.sh -- --sf-offline-installation --sf-repo-url /opt/sfrepo
+sed -i 's|^root:\*:|root::|' /etc/shadow
+mv /usr/bin/systemctl.real /usr/bin/systemctl
+exit
+systemctl enable --now postgresql-17.service starfish.target sf-redash10.target sf-agent
+sf service-status
+ls -l /opt/starfish/redash-systemd/10.1.0/
+cp -r /opt/starfish/redash-systemd /tmp/redash-systemd
+dnf remove redash10
+rm -rf /opt/starfish/redash-systemd
+/opt/starfish/data/installation/install.sh --redash-only --use-defaults
+nano /opt/starfish/etc/license
+cat /opt/sfrepo/installer/sf.keyfile
+nano /opt/starfish/etc/license
+systemctl restart postgresql-17.service starfish.target sf-redash10.target sf-agent
+sf service-status
+sf check-config
+useradd -G starfish sfadmin
+passwd sfadmin
+pwconv
+passwd sfadmin
+USER="sfadmin"
+read -s -p "Password: " PW && echo
+useradd -G starfish "$USER"
+sed -i "s|^${USER}:[^:]*:|${USER}:$(openssl passwd -6 "$PW"):|" /etc/shadow
+unset PW
+sudo su -l sfadmin
+ls -l /home
+SSH_PORT=2222
+sed -i "s/#Port 22/Port ${SSH_PORT}/" /etc/ssh/sshd_config
+ssh-keygen -A
+systemctl enable --now sshd
+systemctl disable auditd
+systemctl mask auditd
+HASH=$(openssl passwd -6 sfadmin)
+sed -i "s|^sfroot:[^:]*:|sfadmin:${HASH}:|" /etc/shadow
+sf check-config
+reboot
+systemctl disable auditd
+systemctl mask auditd
+systemctl disable firewalld
+systemctl mask firewalld
+reboot
+sf service-status
+cat /etc/hosts
+ip a
+hostnamectl set-hostname starfish-demo.ddns.net
+nano /etc/hosts
+hostnamectl set-hostname starfish
+reboot
+sf vol list
+df -h
+sf --version
+ssh-keygen -t ed25519
+cat /root/.ssh/id_ed25519.pub
+cd
+sudo dnf install git
+git clone git@github.com:dmedeiros-sfs/sf-pharma-data-generator.git
+cd sf-pharma-data-generator/
+git pull
+chmod -R ugo+x *.sh
+git pull
+cd ..
+rm -fr sf-pharma-data-generator/
+git clone git@github.com:dmedeiros-sfs/sf-pharma-data-generator.git
+cd sf-pharma-data-generator/scripts/
+./setup_all.sh
+git pull
+./scripts/configure_starfish.sh
+cd ..
+cd scripts/
+./configure_starfish.sh
+sf volume list
+ls -lR /mnt/efs/
+sf service-status
+sf vol list
+sf agent list
+sf vol add etc /etc
+sf scan pending
+sf vol list
+sf vol delete etc
+cd sf-pharma-data-generator/
+git pull
+cd scripts/
+./cleanup.sh
+./setup_all.sh
+ip a
+curl ifconfig.me
+nano /etc/hosts
+cat /etc/hosts
+hostnamectl set-hostname starfish-demo.ddns.net
+exit
+cd sf-pharma-data-generator/
+git pull
+cd scripts/
+./cleanup.sh --all -y
+sf vol list
+./setup_all.sh
+sf vol list
+for vol in $(sf vol list |awk '{print $1}' |grep -v '-'); do sf scan start $vol --wait; done
+sf scan pending
+for vol in $(sf vol list |awk '{print $1}' |grep -v '-'); do sf scan start $vol -t diff --wait; done
+./cleanup.sh --all -y
+git pull
+git checkout add-jobs
+git pull
+./setup_all.sh
+./setup_archive_demo.sh
+cd /
+du -sh /*
+dnf clean all && rm -rf /tmp/* /var/tmp/* /var/cache/dnf/* /var/log/*.log
+du -sh /*
+shutdown now
+rm install.log
+cd /opt/sfrepo/installer
+cat sf.keyfile
+cd /opt/starfish/etc
+cat license
+cat > /etc/profile.d/license-check.sh << 'EOF'
+LICENSE_FILE="/opt/starfish/etc/license"
+if [ ! -s "$LICENSE_FILE" ] || ! grep -q "^keyfile=" "$LICENSE_FILE"; then
+    echo ""
+    echo "========================================="
+    echo "  WARNING: Starfish license not found"
+    echo "========================================="
+    echo ""
+    echo "To add your license, shutdown and copy it from the host:"
+    echo ""
+    echo "  Linux:"
+    echo "    cp /path/to/license /opt/starfish-demo/opt/starfish/etc/license"
+    echo ""
+    echo "  Windows (WSL2):"
+    echo "    cp /mnt/c/Users/you/license /opt/starfish-demo/opt/starfish/etc/license"
+    echo ""
+    echo "Then restart the container:"
+    echo "    systemd-nspawn -D /opt/starfish-demo --boot"
+    echo ""
+    echo "========================================="
+    echo ""
+    read -p "Shutdown now to copy license? [y/N]: " REPLY
+    if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        sudo poweroff
+    fi
+fi
+EOF
+> /opt/starfish/etc/license
+shutdown now
+sf service-status
+sf check-config
+sf vol list
+sf archive-target list
+sf job list
+> /opt/starfish/etc/license
+shutdown now
+sf service-status
+sf check-config
+sf vol list
+sf archive-target list
+sf job show
+cd sf-pharma-data-generator/
+git status
+git checkout main
+git pull
+cd scripts/
+./cleanup.sh --all -y
+./setup_all.sh
+sf vol add --help
+sf vol add --help |grep cron
+./cleanup.sh --all -y
+git pull
+shutdown now
+cat /opt/starfish/etc/license
+cd sf-pharma-data-generator/
+git pull
+cd scripts/
+./cleanup.sh --all -y
+./setup_all.sh
+cd /mnt/efs/
+du -hs ./*
+cd /home
+du -hs ./*
+cd /root
+cd sf-pharma-data-generator
+git pull
+cd scripts/
+./cleanup.sh --all --yes
+./setup_all.sh
+> /opt/starfish/etc/license
+shutdown now

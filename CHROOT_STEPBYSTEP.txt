@@ -1,0 +1,202 @@
+# Step 1: Create and prepare the chroot
+mkdir -p /opt/rocky-chroot
+dnf --installroot=/opt/rocky-chroot --releasever=8 -y groupinstall "Minimal Install"
+dnf --installroot=/opt/rocky-chroot --releasever=8 -y install unzip tar
+cp /etc/resolv.conf /opt/rocky-chroot/etc/resolv.conf
+#
+
+#Step 2: Copy and extract the Starfish offline bundle
+mkdir -p /opt/rocky-chroot/opt/sfrepo
+tar -xzf /home/rocky/starfish-offline-bundle-6.7.12829+6859c0ecda-rocky-8.10.tgz -C /opt/rocky-chroot/opt/sfrepo
+cd /opt/rocky-chroot/opt/sfrepo/installer
+touch sf.keyfile # Or place the .keyfile here
+#
+
+#Step 3: Mount filesystems and enter the chroot
+mount --bind /dev /opt/rocky-chroot/dev
+mount --bind /proc /opt/rocky-chroot/proc
+mount --bind /sys /opt/rocky-chroot/sys
+chroot /opt/rocky-chroot /bin/bash
+#
+
+#Step 4: Install the systemctl wrapper
+#This wrapper intercepts PostgreSQL-related systemctl calls and translates them to commands that work without systemd:
+
+mv /usr/bin/systemctl /usr/bin/systemctl.real
+cat > /usr/bin/systemctl << 'EOF'
+#!/bin/bash
+
+echo "DEBUG: systemctl called with: $*" | tee -a /tmp/systemctl.log >&2
+
+# PostgreSQL handlers
+if [[ "$1" == "show" && "$*" == *"postgresql-17"* ]]; then
+    grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf 2>/dev/null
+    exit 0
+fi
+
+if [[ "$1" == "start" && "$2" == *"postgresql-17"* ]]; then
+    PGDATA=$(grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf | cut -d= -f3)
+    su - postgres -c "/usr/pgsql-17/bin/pg_ctl start -D ${PGDATA} -l ${PGDATA}/startup.log -w"
+    exit $?
+fi
+
+if [[ "$1" == "stop" && "$2" == *"postgresql-17"* ]]; then
+    PGDATA=$(grep "Environment=PGDATA" /etc/systemd/system/postgresql-17.service.d/01_wants-network-online_kill-mode-process.conf | cut -d= -f3)
+    su - postgres -c "/usr/pgsql-17/bin/pg_ctl stop -D ${PGDATA} -m fast"
+    exit $?
+fi
+
+# Starfish services handler
+if [[ "$1" == "start" || "$1" == "restart" || "$1" == "stop" ]]; then
+    ACTION="$1"
+    SERVICE="$2"
+    
+    # Handle starfish.target - start all wanted services
+    if [[ "$SERVICE" == "starfish.target" ]]; then
+        for svc in sf-auth sf-auth-v2 sf-archive sf-config sf-cron sf-dispatcher sf-gateway sf-loki29 sf-nginx2 sf-pgagent sf-pgloader sf-scans sf-tagsets-v2 sf-temp sf-volumes sf-workflows; do
+            $0 "$ACTION" "$svc"
+        done
+        exit 0
+    fi
+    
+    # Handle sf-agent
+    if [[ "$SERVICE" == "sf-agent" || "$SERVICE" == "sf-agent.service" ]]; then
+        case "$ACTION" in
+            start|restart)
+                /opt/starfish/bin/agent start >>/opt/starfish/log/agent.out 2>&1
+                ;;
+            stop)
+                /opt/starfish/bin/agent stop >>/opt/starfish/log/agent.out 2>&1
+                ;;
+        esac
+        exit $?
+    fi
+    
+    # Handle other sf-* services - they follow same pattern
+    if [[ "$SERVICE" == sf-* ]]; then
+        SVC_NAME="${SERVICE%.service}"
+        SVC_NAME="${SVC_NAME#sf-}"
+        if [[ -x "/opt/starfish/bin/${SVC_NAME}" ]]; then
+            case "$ACTION" in
+                start|restart)
+                    /opt/starfish/bin/${SVC_NAME} start >>/opt/starfish/log/${SVC_NAME}.out 2>&1
+                    ;;
+                stop)
+                    /opt/starfish/bin/${SVC_NAME} stop >>/opt/starfish/log/${SVC_NAME}.out 2>&1
+                    ;;
+            esac
+            exit $?
+        fi
+    fi
+fi
+
+if [[ "$1" == "daemon-reload" || "$1" == "enable" ]]; then
+    exit 0
+fi
+
+if [[ "$1" == "is-enabled" && "$2" == *"postgresql"* ]]; then
+    echo "enabled"
+    exit 0
+fi
+
+/usr/bin/systemctl.real "$@"
+EOF
+chmod +x /usr/bin/systemctl
+
+
+
+#Step 5: Run the installer
+cd /opt/sfrepo/installer
+bash install-Starfish.sh -- --sf-offline-installation --sf-repo-url /opt/sfrepo
+
+
+Complete!
+Starting Starfish services
+DEBUG: systemctl called with: restart starfish.target
+DEBUG: systemctl called with: restart sf-auth
+DEBUG: systemctl called with: restart sf-auth-v2
+Running in chroot, ignoring request: restart
+DEBUG: systemctl called with: restart sf-archive
+DEBUG: systemctl called with: restart sf-config
+DEBUG: systemctl called with: restart sf-cron
+DEBUG: systemctl called with: restart sf-dispatcher
+DEBUG: systemctl called with: restart sf-gateway
+DEBUG: systemctl called with: restart sf-loki29
+Running in chroot, ignoring request: restart
+DEBUG: systemctl called with: restart sf-nginx2
+Running in chroot, ignoring request: restart
+DEBUG: systemctl called with: restart sf-pgagent
+Running in chroot, ignoring request: restart
+DEBUG: systemctl called with: restart sf-pgloader
+DEBUG: systemctl called with: restart sf-scans
+DEBUG: systemctl called with: restart sf-tagsets-v2
+Running in chroot, ignoring request: restart
+DEBUG: systemctl called with: restart sf-temp
+DEBUG: systemctl called with: restart sf-volumes
+DEBUG: systemctl called with: restart sf-workflows
+DEBUG: systemctl called with: restart sf-agent
+Waiting for Starfish services to be running (this can take more than a minute)
+Waiting for "is_starfish_running" timed out after 90 seconds
+Starfish is not running. See install.log for more details.
+
+
+
+#Step 6: Clear root password (or set it), restore systemctl, and exit the chroot
+sed -i 's|^root:\*:|root::|' /etc/shadow
+mv /usr/bin/systemctl.real /usr/bin/systemctl
+exit
+
+#Step 7: Unmount and package the image or run it
+umount /opt/rocky-chroot/dev # more like umount -l /opt/rocky-chroot/dev
+umount /opt/rocky-chroot/proc
+umount /opt/rocky-chroot/sys
+
+
+#Step 8
+reboot
+
+#9 You may have to install systemd-nspawn; use the password from #6
+systemd-nspawn -D /opt/rocky-chroot --boot
+
+#10 restart all Starfish services
+
+● sf-redash10-redis.service           loaded failed   failed  Starfish Redash 10 - redis              
+  sf-redash10-scheduler.service       loaded inactive dead    Starfish Redash 10 - RQ scheduler       
+  sf-redash10-server.service          loaded inactive dead    Starfish Redash 10 - server             
+  sf-redash10-worker-periodic.service loaded inactive dead    Starfish Redash 10 - RQ worker periodic 
+  sf-redash10-worker@1.service        loaded inactive dead    Starfish Redash 10 - RQ worker 1        
+  sf-redash10-worker@2.service        loaded inactive dead    Starfish Redash 10 - RQ worker 2        
+  sf-redash10-worker@3.service        loaded inactive dead    Starfish Redash 10 - RQ worker 3        
+  sf-redash10-worker@4.service        loaded inactive dead    Starfish Redash 10 - RQ worker 4
+
+# The redis directory was missing in /opt/starfish/redash-systemd/10.1.0/
+130  systemctl stop postgresql-17-redash10 sf-redash10.target
+  131  cp -r /opt/starfish/redash-systemd /tmp/redash-systemd
+  132  yum remove redash10
+  133  rm -rf /opt/starfish/redash-systemd
+    135  cd 
+  134  /opt/starfish/data/installation/install.sh --redash-only --use-defaults
+
+# Complained about the license
+  137  nano /opt/starfish/etc/license
+  138  vi /opt/starfish/etc/license
+
+# After that everything worked
+  156  systemctl enable --now starfish.target
+  157  systemctl enable --now redash-10.target
+  158  history |grep target
+  159  systemctl enable --now sf-redash10.target
+  160  systemctl enable --now sf*
+  161  systemctl enable --now sf-agent
+
+  # shutdown now
+systemd-nspawn -D /opt/rocky-chroot --boot
+
+machinectl poweroff rocky-chroot
+
+
+
+
+
+
+
