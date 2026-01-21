@@ -1,0 +1,97 @@
+apt update && apt -y upgrade && apt -y install zip debootstrap systemd-container && reboot
+
+sudo rm -rf /opt/starfish-demo
+sudo mkdir -p /opt/starfish-demo
+
+sudo debootstrap --variant=minbase noble /opt/starfish-demo http://archive.ubuntu.com/ubuntu
+
+
+root@demo:/opt# sudo mkdir -p /opt/starfish-demo/usr/share/zoneinfo/Etc
+root@demo:/opt# sudo ln -sf Etc/UTC /opt/starfish-demo/usr/share/zoneinfo/UTC
+root@demo:/opt# sudo cp /etc/resolv.conf /opt/starfish-demo/etc/resolv.conf
+root@demo:/opt#
+
+root@starfish-demo:/# passwd
+New password:
+Retype new password:
+passwd: password updated successfully
+root@starfish-demo:/#
+
+
+
+
+
+
+   13  cd /opt
+   14  ls -l
+   15  rm -fr starfish-demo/
+   16  sudo rm -rf /opt/starfish-demo
+   17  sudo mkdir -p /opt/starfish-demo
+   18  ls -l
+   19  sudo debootstrap --variant=minbase noble /opt/starfish-demo http://archive.ubuntu.com/ubuntu
+   20  sudo mkdir -p /opt/starfish-demo/usr/share/zoneinfo/Etc
+   21  sudo ln -sf Etc/UTC /opt/starfish-demo/usr/share/zoneinfo/UTC
+   22  sudo cp /etc/resolv.conf /opt/starfish-demo/etc/resolv.conf
+   23  sudo systemd-nspawn -D /opt/starfish-demo /bin/bash
+   24  exit
+   25  cd /opt/
+   26  ls -l
+   27  cd starfish-demo/
+   28  cd ..
+   29  ls -l
+   30  rm -fr starfish-demo
+   31  sudo debootstrap   --variant=minbase   --include=systemd-sysv,dbus,tzdata,locales,ca-certificates,zip,unzip,tar   noble /opt/starfish-demo http://archive.ubuntu.com/ubuntu
+   32  sudo cp /etc/resolv.conf /opt/starfish-demo/etc/resolv.conf
+   33  sudo truncate -s 0 /opt/starfish-demo/etc/machine-id
+   34  echo demo.starfish.local | sudo tee /opt/starfish-demo/etc/hostname >/dev/null
+   35  sudo systemd-nspawn -D /opt/starfish-demo --boot
+   36  sudo systemd-nspawn -D /opt/starfish-demo /bin/bash
+   37  sudo systemd-nspawn -D /opt/starfish-demo --boot
+   38  history
+root@demo:/opt#
+
+
+
+
+
+--inside container --
+en_GB.utf8
+en_US.utf8
+fr_FR.utf8
+root@demo:~# update-locale LANG=en_US.UTF-8
+root@demo:~# history
+    1  passwd
+    2  sudo sed -i -E 's/^[# ]*(en_GB\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    3  sudo sed -i -E 's/^[# ]*(de_DE\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    4  sudo sed -i -E 's/^[# ]*(fr_FR\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    5  sudo locale-gen
+    6  sed -i -E 's/^[# ]*(en_GB\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    7  sed -i -E 's/^[# ]*(de_DE\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    8  sed -i -E 's/^[# ]*(fr_FR\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+    9  locale-gen
+   10  locale -a | egrep -i 'en_US\.utf8|en_GB\.utf8|de_DE\.utf8|fr_FR\.utf8'
+   11  sed -i -E 's/^[# ]*(en_US\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+   12  locale-gen
+   13  locale -a | egrep -i 'en_US\.utf8|en_GB\.utf8|de_DE\.utf8|fr_FR\.utf8'
+   14  update-locale LANG=en_US.UTF-8
+   15  history
+root@demo:~#
+
+
+cat > /etc/issue <<'EOF'
+====================================================
+               STARFISH DEMO SYSTEM
+====================================================
+
+Login with:
+
+  Username: root
+  Password: root
+
+====================================================
+
+EOF
+
+
+root@demo:/opt/sfrepo/installer# echo "172.31.35.28 demo.starfish.local demo" > /etc/hosts
+root@demo:/opt/sfrepo/installer#

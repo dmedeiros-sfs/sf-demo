@@ -1,0 +1,73 @@
+ apt update && apt -y upgrade && apt -y install zip debootstrap systemd-container
+
+sudo rm -rf /opt/starfish-demo
+sudo mkdir -p /opt/starfish-demo
+
+sudo debootstrap \
+  --variant=minbase \
+  --include=systemd-sysv,dbus,tzdata,locales,ca-certificates,zip,unzip,tar \
+  noble /opt/starfish-demo http://archive.ubuntu.com/ubuntu
+
+
+ sudo cp /etc/resolv.conf /opt/starfish-demo/etc/resolv.conf
+
+ sudo truncate -s 0 /opt/starfish-demo/etc/machine-id
+
+ echo demo.starfish.local | sudo tee /opt/starfish-demo/etc/hostname >/dev/null
+
+
+root@ip-172-31-47-0:/opt# cat starfish-demo/etc/systemd/system/setup-hosts.service
+[Unit]
+Description=Add demo.starfish.local to /etc/hosts
+Before=network.target
+
+[Service]
+Type=oneshot
+PassEnvironment=HOST_IP
+ExecStart=/bin/bash -c 'cat /etc/hosts.bak > /etc/hosts && echo "$HOST_IP demo.starfish.local demo" >> /etc/hosts'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+root@ip-172-31-47-0:/opt#
+
+
+root@ip-172-31-47-0:/opt# cat starfish-demo/etc/hosts.bak
+127.0.0.1 localhost
+
+# The following lines are desirable for IPv6 capable hosts
+::1 ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+
+# NOTE - The /etc/hosts file is recreated everytime the container boots
+# See /etc/systemd/system/setup-hosts.service
+
+root@ip-172-31-47-0:/opt#
+
+
+
+
+ chroot /opt/starfish-demo/ /bin/bash
+
+ # 1) Make sure the tools exist
+ apt update
+ apt install -y locales
+
+ # 2) Enable the locales you want (safe to run even if already enabled)
+ sed -i -E 's/^[# ]*(en_US\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+ sed -i -E 's/^[# ]*(en_GB\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+ sed -i -E 's/^[# ]*(de_DE\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+ sed -i -E 's/^[# ]*(fr_FR\.UTF-8 UTF-8)/\1/' /etc/locale.gen
+
+ # 3) Generate just the ones you need (this avoids generating tons)
+ locale-gen en_US.UTF-8 en_GB.UTF-8 de_DE.UTF-8 fr_FR.UTF-8
+
+ # 4) Verify en_US now exists
+ locale -a | grep -i 'en_US\.utf8'
+
+ # 5) Set default
+ update-locale LANG=en_US.UTF-8
