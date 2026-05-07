@@ -17,14 +17,14 @@ cd /opt/sfrepo/installer/
 
 cat > starfish.keyfile << 'EOF'
 # [license]
-# username = dmedeiros_lab
+# username = lab
 # expires = 2026-12-31
 # all_enabled = True
 # enabled =
 # disabled =
 # proof_of_concept = False
 # comment =
-keyfile=v3:YR8eUA65UVQ6fnklxioQ4vquD3WfvvtJeKAS6EDi2QEdVSbW85okhsR0SKn++uV0IHufSXaiPwUWIoGIHsbV1y3GlkUAZ4V6g6o1A3/0SBGtoiOlfB43+4se45d2vf7wY/10L0S0NAmAPct6xdmts6VVIuM5Oemnnt/pTqcfTYow4ARMWL54JQdExcnQVtTyQzttUTG9nRcAc1BZT+x9pILEfHDPm6yo8uOoaGJCvA==
+keyfile=v3:01234567800123456780012345678001234567800123456780012345678001234567800123456780012345678001234567800123456780012345678001234567800123456780==
 EOF
 
 bash install-Starfish.sh -- --sf-offline-installation --sf-repo-url /opt/sfrepo
